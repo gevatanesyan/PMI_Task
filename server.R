@@ -2,7 +2,7 @@ library(shiny)
 library(RMySQL)
 library(memoise)
 library(e1071)
-
+library(DT)
 
 function(input, output, session) {
   
@@ -13,20 +13,15 @@ function(input, output, session) {
   db_port <- 3306
   
   
-  
   mydb <-  dbConnect(MySQL(), user = db_user, password = db_password,
                      dbname = db_name, host = db_host, port = db_port)
   
   
   
-  querry <- "SELECT 
-    SOH.SalesOrderID,
+  querry <- "SELECT
     SOH.TotalDue AS SalesAmount,
-    C.CustomerID,
-    P.Title,
-    P.EmailPromotion AS CustomerDemographics,
+    CAST(ExtractValue(P.Demographics, '/*/TotalPurchaseYTD') AS DECIMAL(10, 2)) AS TotalPurchaseYTD,
     PC.Name AS ProductCategoryName,
-    PR.Name AS ProductName,
     PR.ListPrice AS ProductPrice
 FROM Sales_SalesOrderHeader AS SOH
 JOIN Sales_SalesOrderDetail AS SOD ON SOH.SalesOrderID = SOD.SalesOrderID
@@ -135,6 +130,200 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
           
           
           
+          ###### Trends
+          
+          trends_querry <- "SELECT ST.Name as Territory,
+                            PC.Name as Category,
+                            YEAR(SOH.OrderDate) AS Year,
+                            MONTH(SOH.OrderDate) AS Month,
+                            SUM(SOD.LineTotal) AS Total
+                            FROM Sales_SalesOrderHeader AS SOH
+                            JOIN Sales_SalesOrderDetail AS SOD ON SOH.SalesOrderID = SOD.SalesOrderID
+                            JOIN Production_Product as P on SOD.ProductID = P.ProductID
+                            JOIN Sales_SalesTerritory as ST on SOH.TerritoryID = ST.TerritoryID
+                            JOIN Production_ProductSubcategory as PS on PS.ProductSubcategoryID = P.ProductSubcategoryID
+                            JOIN Production_ProductCategory as PC on PC.ProductCategoryID = PS.ProductCategoryID
+                            group by ST.NAME, PC.NAME, YEAR(SOH.OrderDate), MONTH(SOH.OrderDate);"
+          
+          df2 <- reactive(fetch(dbSendQuery(mydb, trends_querry), rs, n = -1))
           
           
+          output$territory <- renderUI({
+            checkboxGroupInput(inputId = 'var1',
+                               label = 'Select Territories',
+                               choices = unique(df2()[['Territory']]),
+                               selected = "All")
+          })
+          
+          output$category <- renderUI({
+            checkboxGroupInput(inputId = 'var2',
+                               label = 'Select Categories',
+                               choices = unique(df2()[['Category']]),
+                               selected = "All")
+          })
+          
+          output$year <- renderUI({
+            checkboxGroupInput(inputId = 'var3',
+                               label = 'Select Years',
+                               choices = sort(unique(as.character(df2()[['Year']]))))
+          })
+          
+          
+          
+          filtered_data <- reactive({
+            
+            claim <- df2() 
+            
+
+            if (!is.null(input$var1) && !identical(input$var1, "All")) {
+              claim <- claim %>% filter(Territory %in% input$var1)
+            }
+            
+            
+            if (!is.null(input$var2) && !identical(input$var2, "All")) {
+              claim <- claim %>% filter(Category %in% input$var2)
+            }
+          
+            if (!is.null(input$var3) && !identical(input$var3, "All")) {
+              selected_years <- as.numeric(input$var3) 
+              claim <- claim %>% filter(Year %in% selected_years)
+            }
+            
+           
+            claim
+          })
+          
+          
+
+          
+          
+          output$contents <- DT::renderDataTable({
+            filtered_data()
+          }, options = list(aLengthMenu = c(20, 40, 60), scrollX = TRUE, scrollY = 400))
+          
+
+          
+          output$plot2 <- renderPlot({
+            df3 <- filtered_data()
+            df3$Date <- with(df3, as.Date(paste(Year, Month, "01", sep = "-")))
+            
+            ggplot(df3, aes(x = Date, y = Total, color = Category)) +
+              geom_line() +  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") + theme_minimal() +
+              labs(title = "Sales Trends Over Time",
+                   x = "Date",
+                   y = "Total Sales",
+                   color = "Category")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+            
+            
+          })
+          
+          output$plot2 <- renderPlot({
+            df3 <- filtered_data()
+            df3$Date <- with(df3, as.Date(paste(Year, Month, "01", sep = "-")))
+            
+            ggplot(df3, aes(x = Date, y = Total, color = Category)) +
+              geom_line() +  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") + theme_minimal() +
+              labs(title = "Sales Trends Over Time",
+                   x = "Date",
+                   y = "Total Sales",
+                   color = "Category")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+            
+            
+          })
+          
+       
+          sales_by_category <- reactive({
+            req(df2())
+            df2() %>%
+              group_by(Category) %>%
+              summarise(Total = sum(Total, na.rm = TRUE)) %>%
+              mutate(Percentage = Total / sum(Total) * 100)
+          })
+          
+          sales_by_territory <- reactive({
+            req(df2())  
+            df2() %>%
+              group_by(Territory) %>%
+              summarise(Total = sum(Total, na.rm = TRUE)) %>%
+              mutate(Percentage = Total / sum(Total) * 100)
+          })
+          
+          output$plotCategoryPie <- renderPlot({
+            df <- sales_by_category()
+            df <- df %>% 
+              arrange(desc(Category)) %>%
+              mutate(label_position = cumsum(Percentage) - 0.5 * Percentage)
+            
+            ggplot(df, aes(x = "", y = Percentage, fill = Category)) +
+              geom_bar(width = 1, stat = "identity") +
+              coord_polar("y", start = 0) +
+              geom_text(aes(y = label_position, label = paste0(round(Percentage, 1), "%")), color = "white") +
+              theme_void() +
+              labs(fill = "Category", title = "Sales Percentage by Product Category")
+          })
+          
+          output$plotTerritoryPie <- renderPlot({
+            df <- sales_by_territory()  
+            df <- df %>% 
+              arrange(desc(Territory)) %>%
+              mutate(label_position = cumsum(Percentage) - 0.5 * Percentage)
+            
+            ggplot(df, aes(x = "", y = Percentage, fill = Territory)) +
+              geom_bar(width = 1, stat = "identity") +
+              coord_polar("y", start = 0) +
+              geom_text(aes(y = label_position, label = paste0(round(Percentage, 1), "%")), color = "white") +
+              theme_void() +
+              labs(fill = "Territory", title = "Sales Percentage by Territory")
+          })
+          
+          
+          
+          
+          output$downloadPDF <- downloadHandler(
+            filename = function() {
+              paste("sales-plots-", Sys.Date(), ".pdf", sep="")
+            },
+            content = function(file) {
+
+              pdf(file, width = 8, height = 4)
+
+              df_for_plot1 <- filtered_data() %>%
+                mutate(Date = as.Date(paste(Year, Month, "01", sep = "-")))  # Create Date column
+              
+
+              plot1 <- ggplot(df_for_plot1, aes(x = Date, y = Total, group = Category, color = Category)) +
+                geom_line() +
+                labs(title = "Sales Trends Over Time", x = "Date", y = "Total Sales") +
+                theme_minimal()
+              print(plot1)
+
+              df_for_plot2 <- sales_by_category()  # Assuming this returns aggregated and percentage calculated data
+              plot2 <- ggplot(df_for_plot2, aes(x = "", y = Percentage, fill = Category)) +
+                geom_bar(width = 1, stat = "identity") +
+                coord_polar("y", start = 0) +
+                geom_text(aes(label = paste0(round(Percentage, 1), "%"), y = cumsum(Percentage) - (0.5 * Percentage)), color = "black") +
+                labs(title = "Sales Percentage by Product Category") +
+                theme_void()
+              print(plot2)
+              
+              # Prepare data for the pie chart for sales by territory
+              df_for_plot3 <- sales_by_territory()  # Assuming this returns aggregated and percentage calculated data
+              plot3 <- ggplot(df_for_plot3, aes(x = "", y = Percentage, fill = Territory)) +
+                geom_bar(width = 1, stat = "identity") +
+                coord_polar("y", start = 0) +
+                geom_text(aes(label = paste0(round(Percentage, 1), "%"), y = cumsum(Percentage) - (0.5 * Percentage)), color = "black") +
+                labs(title = "Sales Percentage by Territory") +
+                theme_void()
+              print(plot3)
+              
+              dev.off()
+            }
+          )
+          
+          
+          
+          
+          
+
 }
+

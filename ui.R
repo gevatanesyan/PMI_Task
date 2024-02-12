@@ -6,6 +6,8 @@ library(shinyjs)
 library(shinydashboard)
 library(shinyalert)
 library(shinyBS)
+library(DT)
+
 
 
 
@@ -86,7 +88,7 @@ ui <- shinydashboardPlus::dashboardPage(
                         
                         ),
                
-               tabPanel("Demograpics and Product Category",
+               tabPanel("Product Category",
 
                         
                         
@@ -113,9 +115,55 @@ ui <- shinydashboardPlus::dashboardPage(
         
     
    
-        )
+        ),
+    
+    
+    
+    tabItem(
+      tabName = 'trends',
+      
+      mainPanel(
+        fluidRow(
+          column(width = 4, height = 300,
+                 uiOutput("category"),
+                 uiOutput("territory"),
+                 uiOutput("year")
+          ),
+          column(width = 8, height = 300,
+                 dataTableOutput("contents")
+          )
+        ),
+        # Place the line plot in its own fluidRow for clear separation
+        fluidRow(
+          column(width = 12,
+                 plotOutput("plot2", height = "300px")  # Specify height if needed
+          )
+        ),
+        tags$br(),
+        # Then have another fluidRow for the pie charts to ensure they are placed below
+        fluidRow(
+          column(width = 6, plotOutput("plotCategoryPie", height = "300px")),  # Specify height if needed
+          column(width = 6, plotOutput("plotTerritoryPie", height = "300px"))  # Specify height if needed
+        ),
+        tags$br(),
+        downloadButton("downloadPDF", "Download Plots as PDF"),
+        tags$br()
+      ),
+      
+    ),
+    
+    
+    tabItem(
+      tabName = 'inventory',
+      
+      mainPanel(
+        h1("Adventure Works Analysis"),
+      )
+      
+    )
+    
+    
      
       )
-    )
-  )
+    ))
 
