@@ -7,6 +7,7 @@ library(shinydashboard)
 library(shinyalert)
 library(shinyBS)
 library(DT)
+library(tidyr)
 
 
 
@@ -133,17 +134,15 @@ ui <- shinydashboardPlus::dashboardPage(
                  dataTableOutput("contents")
           )
         ),
-        # Place the line plot in its own fluidRow for clear separation
         fluidRow(
           column(width = 12,
-                 plotOutput("plot2", height = "300px")  # Specify height if needed
+                 plotOutput("plot_line", height = "300px")
           )
         ),
         tags$br(),
-        # Then have another fluidRow for the pie charts to ensure they are placed below
         fluidRow(
-          column(width = 6, plotOutput("plotCategoryPie", height = "300px")),  # Specify height if needed
-          column(width = 6, plotOutput("plotTerritoryPie", height = "300px"))  # Specify height if needed
+          column(width = 6, plotOutput("plotCategoryPie", height = "300px")),
+          column(width = 6, plotOutput("plotTerritoryPie", height = "300px"))
         ),
         tags$br(),
         downloadButton("downloadPDF", "Download Plots as PDF"),
@@ -157,7 +156,18 @@ ui <- shinydashboardPlus::dashboardPage(
       tabName = 'inventory',
       
       mainPanel(
-        h1("Adventure Works Analysis"),
+        fluidRow(
+          uiOutput("product_name"),
+          column(width = 12, plotOutput("stackedFrequencyPlot", height = "600px")),
+          column(width = 12, plotOutput("plot_inventory_scatter", height = "600px")),
+          column(width = 12, plotOutput("plot_inventory0", height = "600px")),
+ 
+          
+          ),
+          
+
+        
+        
       )
       
     )

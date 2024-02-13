@@ -3,6 +3,9 @@ library(RMySQL)
 library(memoise)
 library(e1071)
 library(DT)
+library(forcats)
+
+
 
 function(input, output, session) {
   
@@ -35,7 +38,7 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
   
   
   output$eda_vars <- renderUI({
-    selectInput(inputId = 'var',
+    selectInput(inputId = 'var_hist',
                 label = 'Please select  Variable',
                 choices = colnames(df)[sapply(df, is.numeric)])
   })
@@ -103,8 +106,8 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
           )
           
           output$Hist1 <- renderPlot({
-            
-            ggplot(data = df) + geom_histogram(aes_string(x = input$var), bins = input$bins)
+            req(input$var_hist)
+            ggplot(data = df) + geom_histogram(aes_string(x = input$var_hist), bins = input$bins)
             
           },height = 700)
           
@@ -113,15 +116,15 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
           ###### Demograpics and Product Category
           
           output$eda_vars2 <- renderUI({
-            selectInput(inputId = 'var2',
+            selectInput(inputId = 'var_product_category',
                         label = 'Please select  Variable',
                         choices = colnames(df)[sapply(df, is.character)])
           })
           
           
           output$bar1 <- renderPlot({
-            
-            ggplot(df, aes_string(x = input$var2)) + 
+            req(input$var_product_category)
+            ggplot(df, aes_string(x = input$var_product_category)) + 
               geom_bar() +
               labs(x = "Category", y = "Frequency") +
               theme_minimal()
@@ -149,21 +152,21 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
           
           
           output$territory <- renderUI({
-            checkboxGroupInput(inputId = 'var1',
+            checkboxGroupInput(inputId = 'var_territory',
                                label = 'Select Territories',
                                choices = unique(df2()[['Territory']]),
                                selected = "All")
           })
           
           output$category <- renderUI({
-            checkboxGroupInput(inputId = 'var2',
+            checkboxGroupInput(inputId = 'var_category',
                                label = 'Select Categories',
                                choices = unique(df2()[['Category']]),
                                selected = "All")
           })
           
           output$year <- renderUI({
-            checkboxGroupInput(inputId = 'var3',
+            checkboxGroupInput(inputId = 'var_year',
                                label = 'Select Years',
                                choices = sort(unique(as.character(df2()[['Year']]))))
           })
@@ -175,17 +178,17 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
             claim <- df2() 
             
 
-            if (!is.null(input$var1) && !identical(input$var1, "All")) {
-              claim <- claim %>% filter(Territory %in% input$var1)
+            if (!is.null(input$var_territory) && !identical(input$var_territory, "All")) {
+              claim <- claim %>% filter(Territory %in% input$var_territory)
             }
             
             
-            if (!is.null(input$var2) && !identical(input$var2, "All")) {
-              claim <- claim %>% filter(Category %in% input$var2)
+            if (!is.null(input$var_category) && !identical(input$var_category, "All")) {
+              claim <- claim %>% filter(Category %in% input$var_category)
             }
           
-            if (!is.null(input$var3) && !identical(input$var3, "All")) {
-              selected_years <- as.numeric(input$var3) 
+            if (!is.null(input$var_year) && !identical(input$var_year, "All")) {
+              selected_years <- as.numeric(input$var_year) 
               claim <- claim %>% filter(Year %in% selected_years)
             }
             
@@ -196,39 +199,25 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
           
 
           
-          
           output$contents <- DT::renderDataTable({
             filtered_data()
           }, options = list(aLengthMenu = c(20, 40, 60), scrollX = TRUE, scrollY = 400))
           
 
+
           
-          output$plot2 <- renderPlot({
+          output$plot_line <- renderPlot({
             df3 <- filtered_data()
             df3$Date <- with(df3, as.Date(paste(Year, Month, "01", sep = "-")))
-            
+
             ggplot(df3, aes(x = Date, y = Total, color = Category)) +
               geom_line() +  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") + theme_minimal() +
               labs(title = "Sales Trends Over Time",
                    x = "Date",
                    y = "Total Sales",
                    color = "Category")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-            
-            
-          })
-          
-          output$plot2 <- renderPlot({
-            df3 <- filtered_data()
-            df3$Date <- with(df3, as.Date(paste(Year, Month, "01", sep = "-")))
-            
-            ggplot(df3, aes(x = Date, y = Total, color = Category)) +
-              geom_line() +  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") + theme_minimal() +
-              labs(title = "Sales Trends Over Time",
-                   x = "Date",
-                   y = "Total Sales",
-                   color = "Category")+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-            
-            
+
+
           })
           
        
@@ -288,7 +277,7 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
               pdf(file, width = 8, height = 4)
 
               df_for_plot1 <- filtered_data() %>%
-                mutate(Date = as.Date(paste(Year, Month, "01", sep = "-")))  # Create Date column
+                mutate(Date = as.Date(paste(Year, Month, "01", sep = "-")))  
               
 
               plot1 <- ggplot(df_for_plot1, aes(x = Date, y = Total, group = Category, color = Category)) +
@@ -297,7 +286,7 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
                 theme_minimal()
               print(plot1)
 
-              df_for_plot2 <- sales_by_category()  # Assuming this returns aggregated and percentage calculated data
+              df_for_plot2 <- sales_by_category() 
               plot2 <- ggplot(df_for_plot2, aes(x = "", y = Percentage, fill = Category)) +
                 geom_bar(width = 1, stat = "identity") +
                 coord_polar("y", start = 0) +
@@ -306,8 +295,8 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
                 theme_void()
               print(plot2)
               
-              # Prepare data for the pie chart for sales by territory
-              df_for_plot3 <- sales_by_territory()  # Assuming this returns aggregated and percentage calculated data
+
+              df_for_plot3 <- sales_by_territory() 
               plot3 <- ggplot(df_for_plot3, aes(x = "", y = Percentage, fill = Territory)) +
                 geom_bar(width = 1, stat = "identity") +
                 coord_polar("y", start = 0) +
@@ -319,6 +308,103 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
               dev.off()
             }
           )
+          
+          querry_inventory <- "WITH AggregatedSales AS (
+                              SELECT 
+                                  SOD.ProductID,
+                                  SUM(SOD.OrderQty) AS TotalUnitsSold
+                              FROM Sales_SalesOrderDetail AS SOD
+                              JOIN Sales_SalesOrderHeader AS SOH ON SOD.SalesOrderID = SOH.SalesOrderID
+                              GROUP BY SOD.ProductID
+                          )
+                          SELECT 
+                              P.ProductID,
+                              P.Name AS ProductName,
+                              PSC.ProductSubcategoryID,
+                              PSC.Name AS ProductSubcategoryName,
+                              PC.ProductCategoryID,
+                              PC.Name AS ProductCategoryName,
+                              L.LocationID,
+                              L.Name AS LocationName,
+                              PI.Quantity AS InventoryQuantity,
+                              COALESCE(ASales.TotalUnitsSold, 0) AS TotalUnitsSold 
+                          FROM Production_Product AS P
+                          JOIN Production_ProductSubcategory AS PSC ON P.ProductSubcategoryID = PSC.ProductSubcategoryID
+                          JOIN Production_ProductCategory AS PC ON PSC.ProductCategoryID = PC.ProductCategoryID
+                          JOIN Production_ProductInventory AS PI ON P.ProductID = PI.ProductID
+                          JOIN Production_Location AS L ON PI.LocationID = L.LocationID
+                          LEFT JOIN AggregatedSales AS ASales ON P.ProductID = ASales.ProductID;"
+          
+          
+          
+          df_invenotry <- reactive(fetch(dbSendQuery(mydb, querry_inventory), rs, n = -1))
+          
+
+          output$plot_inventory_scatter <- renderPlot({
+            df_invenotry_plot1 <- df_invenotry()
+            ggplot(df_invenotry_plot1, aes(x = InventoryQuantity, y = TotalUnitsSold, color = ProductCategoryName)) +
+              geom_point() +
+              geom_smooth(method = "lm", se = F) +
+              labs(title = "Inventory Levels vs. Sales Demand",
+                   x = "Inventory Quantity",
+                   y = "Total Units Sold")
+
+          })
+          
+          output$plot_inventory0<- renderPlot({
+            unsold_products <- df_invenotry()
+            
+            unsold_products_aggregated <- unsold_products %>%
+              filter(TotalUnitsSold == 0 & InventoryQuantity > 0) %>%
+              group_by(ProductName) %>%
+              summarise(TotalInventory = sum(InventoryQuantity)) %>%
+              ungroup()
+            
+            unsold_products_aggregated <- unsold_products_aggregated %>%
+              mutate(ProductName = fct_reorder(ProductName, TotalInventory, .desc = TRUE))
+            
+
+            ggplot(unsold_products_aggregated, aes(x = ProductName, y = TotalInventory)) +
+              geom_bar(stat = "identity") +
+              labs(title = "Inventory with No Sales", x = "Product Name", y = "Products ") +
+              theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+            
+          })
+          
+          
+          output$product_name <- renderUI({
+            selectInput(inputId = 'var_product_category3',
+                        label = 'Please select Product Name',
+                        choices = unique(unique(df_invenotry()['ProductName'])),
+                        multiple = TRUE)
+          })
+          
+          
+          output$stackedFrequencyPlot <- renderPlot({
+            req(input$var_product_category3) 
+            req(df_invenotry()) 
+            
+            filtered_data <- df_invenotry() %>%
+              filter(ProductName %in% input$var_product_category3) %>%
+              mutate(Total = InventoryQuantity + TotalUnitsSold,
+                     InventoryProportion = InventoryQuantity / Total,
+                     SalesProportion = TotalUnitsSold / Total) %>%
+              select(ProductName, InventoryProportion, SalesProportion)
+            
+
+            long_data <- filtered_data %>%
+              pivot_longer(cols = c("InventoryProportion", "SalesProportion"), 
+                           names_to = "Category", values_to = "Value")
+            
+            
+            ggplot(long_data, aes(x = ProductName, y = Value, fill = Category)) +
+              geom_bar(stat = "identity", position = "fill") +
+              labs(title = "Inventory and Sales Proportion per Product", 
+                   x = "Product Name", 
+                   y = "Proportion") +
+              theme_minimal()
+          })
           
           
           
