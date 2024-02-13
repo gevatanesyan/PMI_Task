@@ -309,6 +309,9 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
             }
           )
           
+          
+          ###### Inventory
+          
           querry_inventory <- "WITH AggregatedSales AS (
                               SELECT 
                                   SOD.ProductID,
@@ -406,7 +409,163 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
               theme_minimal()
           })
           
+          ###### Vendors
           
+          querry_performance <- "SELECT 
+                                V.Name AS VendorName,
+                                PV.AverageLeadTime,
+                                P.ProductID,
+                                P.Name AS ProductName,
+                                POD.OrderQty,
+                                POD.ReceivedQty,
+                                POD.RejectedQty,
+                                POH.OrderDate,
+                                POH.ShipDate,
+                                POH.SubTotal,
+                                POH.TotalDue
+                            FROM Purchasing_Vendor AS V
+                            JOIN Purchasing_ProductVendor AS PV ON V.BusinessEntityID = PV.BusinessEntityID
+                            JOIN Production_Product AS P ON PV.ProductID = P.ProductID
+                            JOIN Purchasing_PurchaseOrderDetail AS POD ON P.ProductID = POD.ProductID
+                            JOIN Purchasing_PurchaseOrderHeader AS POH ON POD.PurchaseOrderID = POH.PurchaseOrderID;"
+          
+          df_performance <- reactive(fetch(dbSendQuery(mydb, s), rs, n = -1))
+          
+          
+          output$leadTimeSalesPlot <- renderPlot({
+            
+            df_summary <- df_performance() %>%
+              group_by(VendorName) %>%
+              summarize(AverageLeadTime = mean(AverageLeadTime, na.rm = TRUE),
+                        TotalSales = sum(TotalDue),
+                        .groups = 'drop') 
+
+            ggplot(df_summary, aes(x = AverageLeadTime, y = TotalSales)) +
+              geom_jitter(width =2, height = 1) +
+              geom_smooth(method = "lm", color = "blue", se = F) +
+              labs(title = "Correlation between Average Lead Time and Total Sales",
+                   x = "Average Lead Time (days)", y = "Total Sales")
+          })
+          
+          
+          
+          output$rejectionSalesPlot <- renderPlot({
+            req(df_performance())  
+            
+            df_summary <- df_performance() %>%
+              group_by(VendorName) %>%
+              summarize(Rejected = sum(RejectedQty),
+                        Ordered = sum(OrderQty),
+                        RejectionRate = Rejected / Ordered,
+                        TotalSales = sum(TotalDue),
+                        .groups = 'drop') 
+            
+            ggplot(df_summary, aes(x = RejectionRate, y = TotalSales)) +
+              geom_point() +
+              geom_smooth(method = "lm", color = "blue", se = F ) +
+              labs(title = "Correlation between Rejection Rate and Total Sales",
+                   x = "Rejection Rate", y = "Total Sales")
+          })
+          
+          output$topVendorsPlot <- renderPlot({
+            req(df_performance())  
+            
+            df_summary <- df_performance() %>%
+              group_by(VendorName) %>%
+              summarize(TotalSales = sum(TotalDue), .groups = 'drop') %>%
+              arrange(desc(TotalSales)) %>%
+              slice_head(n = 5) 
+            
+            ggplot(df_summary, aes(x = reorder(VendorName, TotalSales), y = TotalSales)) +
+              geom_bar(stat = "identity", fill = "steelblue") +
+              labs(title = "Top 5 Vendors by Total Sales", x = "Vendor", y = "Total Sales") +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1))
+          })
+          
+          output$lastVendorsPlot <- renderPlot({
+            req(df_performance()) 
+            
+            df_summary <- df_performance() %>%
+              group_by(VendorName) %>%
+              summarize(TotalSales = sum(TotalDue), .groups = 'drop') %>%
+              arrange(TotalSales) %>%
+              slice_head(n = 5)  
+            
+            ggplot(df_summary, aes(x = reorder(VendorName, TotalSales), y = TotalSales)) +
+              geom_bar(stat = "identity", fill = "tomato") +
+              labs(title = "Last 5 Vendors by Total Sales", x = "Vendor", y = "Total Sales") +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1))
+          })
+          
+          
+          output$downloadReport <- downloadHandler(
+            filename = function() {
+              paste("report-", Sys.Date(), ".pdf", sep="")
+            },
+            content = function(file) {
+              pdf(file, width = 11, height = 8.5)
+              
+              req(df_performance()) 
+              
+              df_summary_lead_time <- df_performance() %>%
+                group_by(VendorName) %>%
+                summarize(AverageLeadTime = mean(AverageLeadTime, na.rm = TRUE),
+                          TotalSales = sum(TotalDue),
+                          .groups = 'drop') 
+              p1 <- ggplot(df_summary_lead_time, aes(x = AverageLeadTime, y = TotalSales)) +
+                geom_jitter(width = 0.2, height = 0) +
+                geom_smooth(method = "lm", color = "blue", se = FALSE) +
+                labs(title = "Correlation between Average Lead Time and Total Sales",
+                     x = "Average Lead Time (days)", y = "Total Sales")
+              print(p1)
+              
+              df_summary_rejection <- df_performance() %>%
+                group_by(VendorName) %>%
+                summarize(Rejected = sum(RejectedQty),
+                          Ordered = sum(OrderQty),
+                          RejectionRate = Rejected / Ordered,
+                          TotalSales = sum(TotalDue),
+                          .groups = 'drop') 
+              p2 <- ggplot(df_summary_rejection, aes(x = RejectionRate, y = TotalSales)) +
+                geom_point() +
+                geom_smooth(method = "lm", color = "blue", se = FALSE) +
+                labs(title = "Correlation between Rejection Rate and Total Sales",
+                     x = "Rejection Rate", y = "Total Sales")
+              print(p2)
+              
+              df_top_vendors <- df_performance() %>%
+                group_by(VendorName) %>%
+                summarize(TotalSales = sum(TotalDue), .groups = 'drop') %>%
+                arrange(desc(TotalSales)) %>%
+                slice_head(n = 5)
+              p3 <- ggplot(df_top_vendors, aes(x = reorder(VendorName, TotalSales), y = TotalSales)) +
+                geom_bar(stat = "identity", fill = "steelblue") +
+                labs(title = "Top 5 Vendors by Total Sales", x = "Vendor", y = "Total Sales") +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1))
+              print(p3)
+              
+              df_last_vendors <- df_performance() %>%
+                group_by(VendorName) %>%
+                summarize(TotalSales = sum(TotalDue), .groups = 'drop') %>%
+                arrange(TotalSales) %>%
+                slice_head(n = 5)
+              p4 <- ggplot(df_last_vendors, aes(x = reorder(VendorName, TotalSales), y = TotalSales)) +
+                geom_bar(stat = "identity", fill = "tomato") +
+                labs(title = "Last 5 Vendors by Total Sales", x = "Vendor", y = "Total Sales") +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1))
+              print(p4)
+              
+              dev.off()
+            }
+          )
+          
+          
+          
+          
+          
+          
+                                      
+            
           
           
           

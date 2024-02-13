@@ -157,6 +157,7 @@ ui <- shinydashboardPlus::dashboardPage(
       
       mainPanel(
         fluidRow(
+
           uiOutput("product_name"),
           column(width = 12, plotOutput("stackedFrequencyPlot", height = "600px")),
           column(width = 12, plotOutput("plot_inventory_scatter", height = "600px")),
@@ -170,7 +171,45 @@ ui <- shinydashboardPlus::dashboardPage(
         
       )
       
+    ),
+    
+    tabItem(
+      tabName = 'performance',
+      mainPanel(
+        fluidRow(
+          column(width = 12, plotOutput("leadTimeSalesPlot", height = "600px", width = "100%")),
+          column(width = 12, plotOutput("rejectionSalesPlot", height = "600px",  width = "100%")),
+          column(width = 6, plotOutput("topVendorsPlot", height = "600px",  width = "100%")),
+          column(width = 6, plotOutput("lastVendorsPlot", height = "600px",  width = "100%")),
+          downloadButton("downloadReport", "Download Plots as PDF")
+          
+        ),
+        
+        
+        
+        
+      )
+      
+    ),
+    
+    
+        tabItem(
+      tabName = 'model',
+      mainPanel(
+        fluidRow(
+
+          
+        ),
+        
+        
+        
+        
+      )
+      
     )
+    
+    
+    
     
     
      
