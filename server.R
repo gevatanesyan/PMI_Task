@@ -4,20 +4,20 @@ library(memoise)
 library(e1071)
 library(DT)
 library(forcats)
-
-
+library(Metrics)
+library(caret)
+library(shinyjs)
 
 function(input, output, session) {
   
-  db_user <- 'root'
-  db_password <- '12345678'
-  db_name <- 'pmi'
-  db_host <- '127.0.0.1'
-  db_port <- 3306
+  db_user <- Sys.getenv('DB_USER')
+  db_password <- Sys.getenv('DB_PASSWORD')
+  db_name <- Sys.getenv('DB_NAME')
+  db_host <- Sys.getenv('DB_HOST', '127.0.0.1')  
+  db_port <- as.integer(Sys.getenv('DB_PORT', '3306'))
   
-  
-  mydb <-  dbConnect(MySQL(), user = db_user, password = db_password,
-                     dbname = db_name, host = db_host, port = db_port)
+  mydb <- dbConnect(MySQL(), user = db_user, password = db_password,
+                    dbname = db_name, host = db_host, port = db_port)
   
   
   
@@ -380,7 +380,8 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
             selectInput(inputId = 'var_product_category3',
                         label = 'Please select Product Name',
                         choices = unique(unique(df_invenotry()['ProductName'])),
-                        multiple = TRUE)
+                        multiple = TRUE,
+                        selected = "HL Mountain Frame - Black, 38")
           })
           
           
@@ -429,7 +430,7 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
                             JOIN Purchasing_PurchaseOrderDetail AS POD ON P.ProductID = POD.ProductID
                             JOIN Purchasing_PurchaseOrderHeader AS POH ON POD.PurchaseOrderID = POH.PurchaseOrderID;"
           
-          df_performance <- reactive(fetch(dbSendQuery(mydb, s), rs, n = -1))
+          df_performance <- reactive(fetch(dbSendQuery(mydb, querry_performance), rs, n = -1))
           
           
           output$leadTimeSalesPlot <- renderPlot({
@@ -562,11 +563,247 @@ LEFT JOIN Production_ProductCategory AS PC ON PS.ProductCategoryID = PC.ProductC
           
           
           
+          ##### Linear regression
           
           
-                                      
+          querry_model <- " SELECT       TaxAmt,
+                                        TotalDue,
+                                        Freight,
+                                        OrderQty,
+                                        UnitPrice, 
+                                        LineTotal,
+                                        Name, 
+                                        MakeFlag,
+                                        Color,
+                                        SafetyStockLevel,
+                                        ReorderPoint,
+                                        StandardCost,
+                                        Size,
+                                        Weight,
+                                        DaysToManufacture,
+                                        Class,
+                                        ProductModelID 
+                        FROM Sales_SalesOrderHeader AS SOH
+                        JOIN Sales_SalesOrderDetail AS SOD ON SOH.SalesOrderID = SOD.SalesOrderID
+                        JOIN Sales_Customer AS C ON SOH.CustomerID = C.CustomerID
+                        JOIN Production_Product AS P ON SOD.ProductID = P.ProductID
+                        JOIN Person_Person AS PP ON C.PersonID = PP.BusinessEntityID LIMIT 25000;"
+          
+          
+          data <- reactive(fetch(dbSendQuery(mydb, querry_model), rs, n = -1))
+          model_results <- reactiveValues(coefs = NULL)
+          
+          output$independet_vars4 <- renderUI({
             
+            checkboxGroupInput(inputId = 'dependent_vars4',
+                               label = 'Please Select Independent Variables',
+                               inline = T,
+                               width = '90%',
+                               choices = as.list(names(data())),
+            )
+            
+            
+          })
           
+          
+          
+          output$dependent_vars4 <-renderUI({
+            
+            selectInput(inputId = "independet_vars4",
+                        label = "Please Select Dependent Variable", 
+                        choices = as.list(names(data() %>% purrr::keep(is.numeric))),
+                        multiple = FALSE,)
+          })
+          
+          
+          
+          
+          observe(
+            if(req(input$independet_vars4) == 0) return(NULL)
+            else {
+              updateCheckboxGroupInput(session, inputId = "dependent_vars4", inline = T, choices = as.list(names(data()))[as.list(names(data()))!= req(input$independet_vars4)] )
+            })
+          
+          
+          
+          
+          
+          observe({
+            if(input$selectall2 == 0) return(NULL) 
+            else if (input$selectall2%%2 == 0)
+            {
+              updateCheckboxGroupInput(session,inputId = "dependent_vars4",inline = T, choices=as.list(names(data()))[as.list(names(data()))!= req(input$independet_vars4)] )
+            }
+            else
+            {
+              updateCheckboxGroupInput(session,inputId = "dependent_vars4",inline = T, choices=as.list(names(data()))[as.list(names(data()))!= req(input$independet_vars4)] , selected=as.list(names(data())))
+            }
+          })
+          
+          
+          
+          
+          observeEvent(input$modeling_linear, {
+            
+            tryCatch({
+              options(scipen=999)
+              
+              f<-data()
+              
+              
+              set.seed(123)
+              smp_size <- floor(input$split2 * nrow(f))
+              
+              
+              set.seed(123)
+              train_ind <- sample(seq_len(nrow(f)), size = smp_size)
+              set.seed(123)
+              train <- f[train_ind, ]
+              test <- f[-train_ind, ]
+              
+              train <- na.omit(train)
+              test <- na.omit(test)
+              
+              if(is.null(input$dependent_vars4)){
+                form <- sprintf("%s~%s",paste0(input$independet_vars4), 1)
+              }else{
+                form <- sprintf("%s~%s",paste0(input$independet_vars4), paste0(input$dependent_vars4,collapse="+"))
+              }
+              
+              print(form)
+              
+              linear <- lm(as.formula(form), data=train, na.action = na.omit)
+
+              
+              
+              linear_coefs <- reactive({data.frame(linear$coefficients)})
+              
+              model_results$coefs <- coef(linear)
+              
+              predictions_train <- predict(linear, newdata = train)
+
+              predictions_test <-  predict(linear, newdata = test)
+              
+              output$RMSELinear <- renderInfoBox({
+                infoBox(
+                  "RMSE Train/Test",
+                  paste0("Train: ", round(RMSE(predictions_train, train[[input$independet_vars4]])), "\n"),
+                  paste0("Test: ", round(RMSE(predictions_test, test[[input$independet_vars4]])), "\n"),
+                  color = "orange", fill = TRUE
+                )
+              })
+              
+              
+              
+              
+              output$Rsquare <- renderInfoBox({
+                infoBox(
+                  "Adjusted R square", paste0(summary(linear)$adj.r.squared),
+                  color = "orange", fill = TRUE
+                )
+              })
+              
+              
+
+              
+
+              
+              
+              residuals <- residuals(linear)
+              fitted_values <- fitted(linear)
+              
+              residuals_data <- data.frame(Fitted = fitted_values, Residuals = residuals)
+              
+              qq_data <- data.frame(Standardized_Residuals = residuals)
+              
+              residual_plot <- ggplot(residuals_data, aes(x = Fitted, y = Residuals)) +
+                geom_point() +
+                geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+                xlab("Fitted Values") +
+                ylab("Residuals") +
+                ggtitle("Residual Plot")
+              
+              qq_plot <- ggplot(qq_data, aes(sample = Standardized_Residuals)) +
+                geom_qq() +
+                geom_qq_line(color = "red") +
+                xlab("Theoretical Quantiles") +
+                ylab("Standardized Residuals") +
+                ggtitle("Normal Q-Q Plot")
+              
+              
+              coefficients <- coef(linear)[-1]
+              
+              coefficients_data <- data.frame(
+                Predictor = names(coefficients),
+                Coefficient = coefficients,
+                Sign = ifelse(coefficients >= 0, "Positive", "Negative")
+              )
+              
+              coefficients_plot <- ggplot(coefficients_data, aes(x = Predictor, y = Coefficient, fill = Sign)) +
+                geom_bar(stat = "identity", position = "identity", color = "black") +
+                scale_fill_manual(values = c("Positive" = "steelblue", "Negative" = "red")) +
+                xlab("Predictor") +
+                ylab("Coefficient") +
+                ggtitle("Coefficients Plot") +
+                theme(axis.text.x = element_text(angle = 45, hjust = 1))
+              
+              
+              output$residualplot <- renderPlot({
+                residual_plot
+                
+              })
+              
+              
+              output$qqplot1 <- renderPlot({
+                qq_plot
+              })
+              
+              output$coef_plot_linear <- renderPlot({
+                coefficients_plot
+              })
+              
+              
+              
+              output$download2 <- downloadHandler(
+                filename = function() {
+                  paste('linear_coefs-', Sys.Date(), ".csv", sep="")
+                },
+                content = function(file) {
+                  
+                  write.csv(model_results$coefs,file)
+                  
+                  
+                }
+              )
+              
+            },
+            warning = function(warn){
+              showNotification(paste0(warn), type = 'warning')
+            },
+            error = function(err){
+              showNotification(paste0(err), type = 'err')
+            })
+            
+
+
+            
+            
+            
+          })
+          
+          
+          observeEvent(input$clicklinearIntercept, {
+            showModal(modalDialog(
+              easyClose = TRUE,
+              title = "Coefficients summary",
+              renderPrint({as.data.frame(model_results$coefs)}) 
+            ))
+          })
+          
+          output$LinearIntercept <- renderUI({
+            actionButton("clicklinearIntercept", "Coefficients - Click for more Info", class = "btn btn-warning")
+          })
+
           
           
 

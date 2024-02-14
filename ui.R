@@ -195,24 +195,68 @@ ui <- shinydashboardPlus::dashboardPage(
     
         tabItem(
       tabName = 'model',
-      mainPanel(
-        fluidRow(
+      fluidRow(
+        tabBox(id="tabchart2",width = 12,height = 1200,
+               
+               
+               tabPanel('Linear Regression',
+                        
+                        
+                        sidebarLayout(
+                          sidebarPanel(
+                            
+                            uiOutput("dependent_vars4"),
+                            uiOutput("independet_vars4"),
+                            actionButton("selectall2","Select All") ,
+                            
+                            tags$hr(),
+                            
+                            sliderInput("split2", label = "Please Select Train Size",min = 0.5, max = 0.95, value = 0.75, step = 0.05),
+                            actionButton(inputId = 'modeling_linear', label = 'Create Model'),
 
-          
-        ),
-        
-        
-        
-        
-      )
+                            
+                            
+                          ),
+                          mainPanel(
+                            fluidRow(
+                              infoBoxOutput("RMSELinear", width = 6),
+                              div(id = 'clickAUC', 
+                                  infoBoxOutput("Rsquare", width = 6)),
+                              box(plotOutput("residualplot")),
+                              box(plotOutput("qqplot1")),
+                              box(plotOutput("coef_plot_linear"), width = 12)
+                              
+                            ),
+                            fluidRow(
+                              div(id = 'clicklinearIntercept',
+                                  infoBoxOutput("LinearIntercept")),
+                              downloadButton("download2", "Download .csv"),
+                              uiOutput("campains_linear"),
+                              uiOutput("models_linear"),
+                              textOutput('modelid_linear'),
+                              useShinyalert(force = TRUE),
+                              
+                            )
+                            
+                          ),
+                          
+                          
+                          
+                        )
+                ),
+               
+               
+          ))
       
-    )
+        )
     
     
     
     
     
      
-      )
-    ))
+    )
+    
+    
+))
 
